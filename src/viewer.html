@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualizador Interativo de Bandas GOES-R</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .font-mono {
+            font-family: 'Roboto Mono', monospace;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(0, 191, 255, 0.7); }
+            70% { transform: scale(1.05); box-shadow: 0 0 0 8px rgba(0, 191, 255, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(0, 191, 255, 0); }
+        }
+
+        .band-circle {
+            transition: all 0.2s ease-in-out;
+            animation: pulse 2.5s infinite;
+        }
+        
+        .band-circle:hover, .band-circle.active {
+            animation: none;
+            transform: scale(1.15) translateX(-45%);
+            background-color: #00bfff; /* Deep Sky Blue */
+            color: #1a202c;
+            font-weight: bold;
+        }
+
+        .band-circle.active {
+            box-shadow: 0 0 0 3px white;
+        }
+
+        .lang-btn {
+            transition: all 0.2s ease-in-out;
+            opacity: 0.6;
+        }
+        .lang-btn:hover, .lang-btn.active {
+            opacity: 1;
+            transform: scale(1.1);
+        }
+        .lang-btn.active {
+            border-radius: 0.25rem;
+            box-shadow: 0 0 0 2px #00bfff;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center min-h-screen p-4">
+
+    <div class="w-full max-w-6xl mx-auto">
+        <header class="text-center mb-8 relative">
+            <div id="lang-switcher" class="absolute top-0 right-0 flex space-x-2">
+                <button data-lang="pt" class="lang-btn p-1 text-2xl">🇧🇷</button>
+                <button data-lang="en" class="lang-btn p-1 text-2xl">🇺🇸</button>
+                <button data-lang="es" class="lang-btn p-1 text-2xl">🇪🇸</button>
+            </div>
+            <h1 id="main-title" class="text-3xl md:text-4xl font-bold text-cyan-400 pt-12 md:pt-0"></h1>
+            <p id="main-subtitle" class="text-lg text-gray-400 mt-2"></p>
+        </header>
+
+        <!-- Container do Visualizador -->
+        <div class="bg-gray-800 p-6 rounded-lg shadow-2xl border border-gray-700">
+            <!-- Legenda Superior (GOES) -->
+            <div class="flex text-xs md:text-sm text-gray-300 mb-2 font-mono relative h-10 items-end">
+                <div class="absolute" style="left: 6%;">GOES:</div>
+                <div class="absolute text-center" style="left: 15%; width: 10%;">Visível</div>
+                <div class="absolute text-center" style="left: 36%; width: 10%;">3.9 µm<br><span class="text-xs text-gray-400">(Infravermelho de onda curta)</span></div>
+                <div class="absolute text-center" style="left: 58%; width: 10%;">6.5 µm<br><span class="text-xs text-gray-400">(Vapor d'água)</span></div>
+                <div class="absolute text-center" style="left: 80%; width: 10%;">10.7 µm<br><span class="text-xs text-gray-400">(Infravermelho)</span></div>
+                <div class="absolute text-center" style="left: 90%; width: 10%;">13.3 µm<br><span class="text-xs text-gray-400">(Dióxido de carbono)</span></div>
+            </div>
+
+            <!-- Barra de Espectro Colorida -->
+            <div class="w-full flex h-6 rounded-md overflow-hidden text-white text-xs items-center justify-center font-bold">
+                <div class="h-full flex items-center justify-center" style="width: 5%; background-color: #f6ad55;" title="Visível"></div>
+                <div class="h-full flex items-center justify-center" style="width: 10%; background-color: #ef4444;" title="Infravermelho próximo"></div>
+                <div class="h-full flex items-center justify-center" style="width: 15%; background-color: #8b4513;" title="Infravermelho de onda curta"></div>
+                <div class="h-full flex items-center justify-center" style="width: 30%; background-color: #4ade80;" title="Infravermelho de onda média"></div>
+                <div class="h-full flex items-center justify-center" style="width: 40%; background-color: #3b82f6;" title="Infravermelho de onda longa"></div>
+            </div>
+            
+            <!-- Container da Escala e Bandas ABI -->
+            <div id="scale-and-bands-container" class="w-full h-24 relative mt-2">
+                <!-- As caixas, ticks, e círculos serão injetados aqui via JS -->
+            </div>
+        </div>
+
+        <!-- Container para exibir informações da banda -->
+        <div id="band-info-display" class="mt-8 w-full transition-all duration-500">
+            <div id="info-placeholder" class="bg-gray-800 p-8 rounded-lg border-2 border-dashed border-gray-600 h-full flex items-center justify-center text-center">
+                 <p id="placeholder-text" class="text-gray-500 text-lg"></p>
+            </div>
+            <div id="info-content" class="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700 hidden">
+                <h2 id="info-title" class="text-2xl font-bold text-cyan-400"></h2>
+                <p id="info-description" class="text-gray-300 my-4 text-base"></p>
+                <h3 id="highlights-title" class="font-semibold text-lg text-cyan-300 mb-2"></h3>
+                <ul id="info-highlights" class="list-disc list-inside space-y-2 text-gray-300"></ul>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // Objeto com todas as traduções
+        const translations = {
+            'pt': {
+                mainTitle: "Visualizador de Bandas do Satélite GOES",
+                mainSubtitle: "Clique em um dos números para explorar os usos de cada banda do sensor ABI.",
+                placeholderText: "Selecione uma banda acima para ver os detalhes.",
+                highlightsTitle: "Eventos e fenômenos realçados:",
+                bandData: [
+                    { id: 1, name: "Canal 1: Azul Visível (0.47 µm)", description: "Aplicação principal para observações no espectro visível azul. Essencial para a detecção de aerossóis, como poeira e fumaça. Resolução espacial no nadir: 1 km.", highlights: ["Nuvens baixas e nevoeiro", "Aerossóis (poeira e fumaça)", "Qualidade do ar", "Visibilidade"] },
+                    { id: 2, name: "Canal 2: Vermelho Visível (0.64 µm)", description: "Principal canal visível, usado para monitorar nuvens, características da superfície e fumaça de incêndios. É a banda de maior resolução espacial. Resolução espacial no nadir: 0.5 km.", highlights: ["Nuvens e tempestades", "Fumaça de incêndios", "Saúde da vegetação", "Limites entre terra e água"] },
+                    { id: 3, name: "Canal 3: Vegetação (0.864 µm)", description: "Aplicação principal para monitorar a saúde e o vigor da vegetação. Superfícies de água absorvem fortemente nesta banda, tornando-a ideal para delinear corpos d'água. Resolução espacial no nadir: 1 km.", highlights: ["Saúde da vegetação (NDVI)", "Delineamento de rios e lagos", "Detecção de áreas inundadas", "Nuvens"] },
+                    { id: 4, name: "Canal 4: Detecção de Nuvens Cirrus (1.373 µm)", description: "Altamente sensível a nuvens finas de gelo (Cirrus) no topo da atmosfera, que muitas vezes são invisíveis em outras bandas. Essencial para a segurança da aviação. Resolução espacial no nadir: 2 km.", highlights: ["Nuvens Cirrus de alta altitude", "Identificação de turbulência em potencial", "Segurança da aviação"] },
+                    { id: 5, name: "Canal 5: Detecção de Neve/Gelo (1.61 µm)", description: "Usado para diferenciar nuvens de água e nuvens de gelo, além de detectar neve e gelo na superfície durante o dia. Resolução espacial no nadir: 1 km.", highlights: ["Diferenciação entre nuvens de água e gelo", "Cobertura de neve e gelo", "Detecção de focos de incêndio"] },
+                    { id: 6, name: "Canal 6: Tamanho da Partícula da Nuvem (2.24 µm)", description: "Sensível ao tamanho das partículas no topo das nuvens, auxiliando na estimativa da intensidade da chuva e na detecção de neve. Resolução espacial no nadir: 2 km.", highlights: ["Tamanho das partículas de nuvens", "Detecção de neve", "Estresse hídrico da vegetação", "Pontos quentes de incêndios"] },
+                    { id: 7, name: "Canal 7: Janela de Onda Curta (3.90 µm)", description: "Janela de infravermelho de onda curta. Excelente para detectar nevoeiro noturno, focos de incêndio, cinzas vulcânicas e estimar a temperatura da superfície. Resolução espacial no nadir: 2 km.", highlights: ["Detecção de incêndios (pontos quentes)", "Nevoeiro e nuvens baixas à noite", "Cinzas vulcânicas", "Temperatura da superfície"] },
+                    { id: 8, name: "Canal 8: Vapor d'água de Nível Superior (6.19 µm)", description: "Monitora o vapor d'água na alta troposfera. Crucial para identificar correntes de jato e áreas de turbulência. Resolução espacial no nadir: 2 km.", highlights: ["Vapor d'água em altos níveis", "Correntes de jato (Jet Stream)", "Padrões de vento em altitude", "Turbulência"] },
+                    { id: 9, name: "Canal 9: Vapor d'água de Nível Médio (6.93 µm)", description: "Detecta o movimento do vapor d'água na média troposfera, ajudando a prever a formação de sistemas meteorológicos. Resolução espacial no nadir: 2 km.", highlights: ["Vapor d'água em níveis médios", "Movimento atmosférico (ventos)", "Desenvolvimento de tempestades"] },
+                    { id: 10, name: "Canal 10: Vapor d'água de Nível Baixo/Médio (7.34 µm)", description: "Observa o vapor d'água na baixa e média troposfera. Essencial para identificar os limites de massas de ar e prever tempo severo. Resolução espacial no nadir: 2 km.", highlights: ["Vapor d'água em baixos níveis", "Umidade para tempestades", "Frentes e massas de ar"] },
+                    { id: 11, name: "Canal 11: Fase do Topo da Nuvem (8.44 µm)", description: "Ajuda a distinguir entre nuvens de água e de gelo. Usada também para detectar poeira e cinzas vulcânicas. Resolução espacial no nadir: 2 km.", highlights: ["Fase das nuvens (água ou gelo)", "Poeira e areia em suspensão", "Cinzas vulcânicas", "Dióxido de enxofre (SO₂)"] },
+                    { id: 12, name: "Canal 12: Detecção de Ozônio (9.61 µm)", description: "Mede a concentração total de ozônio na estratosfera, o que pode indicar a posição das correntes de jato e turbulência. Resolução espacial no nadir: 2 km.", highlights: ["Ozônio total na atmosfera", "Dinâmica da estratosfera", "Identificação da tropopausa"] },
+                    { id: 13, name: "Canal 13: Janela de Onda Longa Limpa (10.33 µm)", description: "Janela de infravermelho 'limpa', fornece a imagem infravermelha 'padrão', medindo a temperatura do topo das nuvens e da superfície. Resolução espacial no nadir: 2 km.", highlights: ["Temperatura do topo das nuvens", "Intensidade de tempestades", "Nevoeiro", "Temperatura da superfície"] },
+                    { id: 14, name: "Canal 14: Janela de Onda Longa (11.21 µm)", description: "Janela de infravermelho de onda longa. Semelhante ao canal 13, mas mais sensível à umidade em baixos níveis. Usada para monitorar nuvens e estimar precipitação. Resolução espacial no nadir: 2 km.", highlights: ["Imagens de nuvens (dia e noite)", "Estimativa de chuva", "Análise de ciclones tropicais"] },
+                    { id: 15, name: "Canal 15: Janela de Onda Longa 'Suja' (12.29 µm)", description: "Janela de infravermelho de onda longa 'suja', pois é mais sensível ao vapor d'água de baixa altitude. A diferença para outras bandas ajuda a identificar cinzas vulcânicas. Resolução espacial no nadir: 2 km.", highlights: ["Umidade em baixos níveis", "Identificação de cinzas vulcânicas", "Nuvens baixas e nevoeiro"] },
+                    { id: 16, name: "Canal 16: Detecção de CO2 (13.28 µm)", description: "Mede a radiação do Dióxido de Carbono (CO₂) para classificar a altura das nuvens e estimar perfis de temperatura do ar. Resolução espacial no nadir: 2 km.", highlights: ["Altura do topo das nuvens", "Perfis de temperatura atmosférica", "Estabilidade atmosférica"] }
+                ]
+            },
+            'en': {
+                mainTitle: "GOES Satellite Bands Viewer",
+                mainSubtitle: "Click on one of the numbers to explore the uses of each ABI sensor band.",
+                placeholderText: "Select a band above to see the details.",
+                highlightsTitle: "Highlighted events and phenomena:",
+                bandData: [
+                    { id: 1, name: "Channel 1: Visible Blue (0.47 µm)", description: "Main application for observations in the visible blue spectrum. Essential for detecting aerosols, such as dust and smoke. Spatial resolution at nadir: 1 km.", highlights: ["Low clouds and fog", "Aerosols (dust and smoke)", "Air quality", "Visibility"] },
+                    { id: 2, name: "Channel 2: Visible Red (0.64 µm)", description: "Main visible channel, used to monitor clouds, surface features, and smoke from fires. It is the band with the highest spatial resolution. Spatial resolution at nadir: 0.5 km.", highlights: ["Clouds and storms", "Smoke from fires", "Vegetation health", "Land/water boundaries"] },
+                    { id: 3, name: "Channel 3: Vegetation (0.864 µm)", description: "Main application for monitoring the health and vigor of vegetation. Water surfaces strongly absorb in this band, making it ideal for delineating water bodies. Spatial resolution at nadir: 1 km.", highlights: ["Vegetation health (NDVI)", "Delineation of rivers and lakes", "Detection of flooded areas", "Clouds"] },
+                    { id: 4, name: "Channel 4: Cirrus Cloud Detection (1.373 µm)", description: "Highly sensitive to thin ice clouds (Cirrus) at the top of the atmosphere, which are often invisible in other bands. Essential for aviation safety. Spatial resolution at nadir: 2 km.", highlights: ["High-altitude Cirrus clouds", "Identification of potential turbulence", "Aviation safety"] },
+                    { id: 5, name: "Channel 5: Snow/Ice Detection (1.61 µm)", description: "Used to differentiate between water clouds and ice clouds, as well as to detect snow and ice on the surface during the day. Spatial resolution at nadir: 1 km.", highlights: ["Differentiation between water and ice clouds", "Snow and ice cover", "Detection of fire hotspots"] },
+                    { id: 6, name: "Channel 6: Cloud Particle Size (2.24 µm)", description: "Sensitive to the size of particles at the top of clouds, aiding in estimating rainfall intensity and detecting snow. Spatial resolution at nadir: 2 km.", highlights: ["Cloud particle size", "Snow detection", "Vegetation water stress", "Hotspots from fires"] },
+                    { id: 7, name: "Channel 7: Shortwave Window (3.90 µm)", description: "Shortwave infrared window. Excellent for detecting nighttime fog, fire hotspots, volcanic ash, and estimating sea surface temperature. Spatial resolution at nadir: 2 km.", highlights: ["Fire detection (hotspots)", "Nighttime fog and low clouds", "Volcanic ash", "Surface temperature"] },
+                    { id: 8, name: "Channel 8: Upper-level Water Vapor (6.19 µm)", description: "Monitors water vapor in the upper troposphere. Crucial for identifying jet streams and areas of turbulence. Spatial resolution at nadir: 2 km.", highlights: ["Upper-level water vapor", "Jet Stream", "High-altitude wind patterns", "Turbulence"] },
+                    { id: 9, name: "Channel 9: Mid-level Water Vapor (6.93 µm)", description: "Detects the movement of water vapor in the mid-troposphere, helping to predict the formation of weather systems. Spatial resolution at nadir: 2 km.", highlights: ["Mid-level water vapor", "Atmospheric motion (winds)", "Storm development"] },
+                    { id: 10, name: "Channel 10: Lower/Mid-level Water Vapor (7.34 µm)", description: "Observes water vapor in the lower and mid-troposphere. Essential for identifying the boundaries of air masses and predicting severe weather. Spatial resolution at nadir: 2 km.", highlights: ["Low-level water vapor", "Moisture for storms", "Fronts and air masses"] },
+                    { id: 11, name: "Channel 11: Cloud-Top Phase (8.44 µm)", description: "Helps to distinguish between water and ice clouds. Also used to detect dust and volcanic ash. Spatial resolution at nadir: 2 km.", highlights: ["Cloud phase (water or ice)", "Suspended dust and sand", "Volcanic ash", "Sulfur dioxide (SO₂)"] },
+                    { id: 12, name: "Channel 12: Ozone Detection (9.61 µm)", description: "Measures the total ozone concentration in the stratosphere, which can indicate the position of jet streams and turbulence. Spatial resolution at nadir: 2 km.", highlights: ["Total ozone in the atmosphere", "Stratospheric dynamics", "Tropopause identification"] },
+                    { id: 13, name: "Channel 13: Clean Longwave Window (10.33 µm)", description: "'Clean' infrared window, provides the 'standard' infrared image, measuring the temperature of cloud tops and the surface. Spatial resolution at nadir: 2 km.", highlights: ["Cloud top temperature", "Storm intensity", "Fog", "Surface temperature"] },
+                    { id: 14, name: "Channel 14: Longwave Window (11.21 µm)", description: "Longwave infrared window. Similar to channel 13, but more sensitive to low-level moisture. Used to monitor clouds and estimate precipitation. Spatial resolution at nadir: 2 km.", highlights: ["Cloud imagery (day and night)", "Rainfall estimation", "Tropical cyclone analysis"] },
+                    { id: 15, name: "Channel 15: Dirty Long Wave Window (12.29 µm)", description: "'Dirty' longwave infrared window, as it is more sensitive to low-altitude water vapor. The difference with other bands helps to identify volcanic ash. Spatial resolution at nadir: 2 km.", highlights: ["Low-level moisture", "Volcanic ash identification", "Low clouds and fog"] },
+                    { id: 16, name: "Channel 16: CO2 Detection (13.28 µm)", description: "Measures Carbon Dioxide (CO₂) radiation to classify cloud height and estimate air temperature profiles. Spatial resolution at nadir: 2 km.", highlights: ["Cloud top height", "Atmospheric temperature profiles", "Atmospheric stability"] }
+                ]
+            },
+            'es': {
+                mainTitle: "Visualizador de Bandas del Satélite GOES",
+                mainSubtitle: "Haga clic en uno de los números para explorar los usos de cada banda del sensor ABI.",
+                placeholderText: "Seleccione una banda arriba para ver los detalles.",
+                highlightsTitle: "Eventos y fenómenos destacados:",
+                bandData: [
+                    { id: 1, name: "Canal 1: Azul Visible (0.47 µm)", description: "Aplicación principal para observaciones en el espectro visible azul. Esencial para la detección de aerosoles, como polvo y humo. Resolución espacial en el nadir: 1 km.", highlights: ["Nubes bajas y niebla", "Aerosoles (polvo y humo)", "Calidad del aire", "Visibilidad"] },
+                    { id: 2, name: "Canal 2: Rojo Visible (0.64 µm)", description: "Principal canal visible, utilizado para monitorear nubes, características de la superficie y humo de incendios. Es la banda con la mayor resolución espacial. Resolución espacial en el nadir: 0.5 km.", highlights: ["Nubes y tormentas", "Humo de incendios", "Salud de la vegetación", "Límites tierra/agua"] },
+                    { id: 3, name: "Canal 3: Vegetación (0.864 µm)", description: "Aplicación principal para monitorear la salud y el vigor de la vegetación. Las superficies de agua absorben fuertemente en esta banda, lo que la hace ideal para delinear cuerpos de agua. Resolución espacial en el nadir: 1 km.", highlights: ["Salud de la vegetación (NDVI)", "Delineación de ríos y lagos", "Detección de áreas inundadas", "Nubes"] },
+                    { id: 4, name: "Canal 4: Detección de Nubes Cirrus (1.373 µm)", description: "Altamente sensible a las nubes de hielo delgadas (Cirrus) en la parte superior de la atmósfera, que a menudo son invisibles en otras bandas. Esencial para la seguridad de la aviación. Resolución espacial en el nadir: 2 km.", highlights: ["Nubes Cirrus de gran altitud", "Identificación de turbulencia potencial", "Seguridad de la aviación"] },
+                    { id: 5, name: "Canal 5: Detección de Nieve/Hielo (1.61 µm)", description: "Se utiliza para diferenciar entre nubes de agua y nubes de hielo, además de detectar nieve y hielo en la superficie durante el día. Resolución espacial en el nadir: 1 km.", highlights: ["Diferenciación entre nubes de agua y hielo", "Cobertura de nieve y hielo", "Detección de focos de incendio"] },
+                    { id: 6, name: "Canal 6: Tamaño de Partícula de la Nube (2.24 µm)", description: "Sensible al tamaño de las partículas en la parte superior de las nubes, ayudando a estimar la intensidad de la lluvia y a detectar nieve. Resolución espacial en el nadir: 2 km.", highlights: ["Tamaño de las partículas de las nubes", "Detección de nieve", "Estrés hídrico de la vegetación", "Puntos calientes de incendios"] },
+                    { id: 7, name: "Canal 7: Ventana de Onda Corta (3.90 µm)", description: "Ventana de infrarrojos de onda corta. Excelente para detectar niebla nocturna, focos de incendios, cenizas volcánicas y estimar la temperatura de la superficie del mar. Resolución espacial en el nadir: 2 km.", highlights: ["Detección de incendios (puntos calientes)", "Niebla y nubes bajas por la noche", "Cenizas volcánicas", "Temperatura de la superficie"] },
+                    { id: 8, name: "Canal 8: Vapor de Agua de Nivel Superior (6.19 µm)", description: "Monitorea el vapor de agua en la troposfera superior. Crucial para identificar corrientes en chorro y áreas de turbulencia. Resolución espacial en el nadir: 2 km.", highlights: ["Vapor de agua en niveles altos", "Corriente en chorro (Jet Stream)", "Patrones de viento en altitud", "Turbulencia"] },
+                    { id: 9, name: "Canal 9: Vapor de Agua de Nivel Medio (6.93 µm)", description: "Detecta el movimiento del vapor de agua en la troposfera media, ayudando a predecir la formación de sistemas meteorológicos. Resolución espacial en el nadir: 2 km.", highlights: ["Vapor de agua en niveles medios", "Movimiento atmosférico (vientos)", "Desarrollo de tormentas"] },
+                    { id: 10, name: "Canal 10: Vapor de Agua de Nivel Bajo/Medio (7.34 µm)", description: "Observa el vapor de agua en la troposfera baja y media. Esencial para identificar los límites de las masas de aire y predecir tiempo severo. Resolución espacial en el nadir: 2 km.", highlights: ["Vapor de agua en niveles bajos", "Humedad para tormentas", "Frentes y masas de aire"] },
+                    { id: 11, name: "Canal 11: Fase del Tope de la Nube (8.44 µm)", description: "Ayuda a distinguir entre nubes de agua y de hielo. También se utiliza para detectar polvo y cenizas volcánicas. Resolución espacial en el nadir: 2 km.", highlights: ["Fase de las nubes (agua o hielo)", "Polvo y arena en suspensión", "Cenizas volcánicas", "Dióxido de azufre (SO₂)"] },
+                    { id: 12, name: "Canal 12: Detección de Ozono (9.61 µm)", description: "Mide la concentración total de ozono en la estratosfera, lo que puede indicar la posición de las corrientes en chorro y la turbulencia. Resolución espacial en el nadir: 2 km.", highlights: ["Ozono total en la atmósfera", "Dinámica de la estratosfera", "Identificación de la tropopausa"] },
+                    { id: 13, name: "Canal 13: Ventana de Onda Larga Limpia (10.33 µm)", description: "Ventana de infrarrojos 'limpia', proporciona la imagen infrarroja 'estándar', midiendo la temperatura de la cima de las nubes y de la superficie. Resolución espacial en el nadir: 2 km.", highlights: ["Temperatura del tope de las nubes", "Intensidad de las tormentas", "Niebla", "Temperatura de la superficie"] },
+                    { id: 14, name: "Canal 14: Ventana de Onda Larga (11.21 µm)", description: "Ventana de infrarrojos de onda larga. Similar al canal 13, pero más sensible a la humedad de bajo nivel. Se utiliza para monitorear nubes y estimar la precipitación. Resolución espacial en el nadir: 2 km.", highlights: ["Imágenes de nubes (día y noche)", "Estimación de lluvia", "Análisis de ciclones tropicales"] },
+                    { id: 15, name: "Canal 15: Ventana de Onda Larga 'Sucia' (12.29 µm)", description: "Ventana de infrarrojos de onda larga 'sucia', ya que es más sensible al vapor de agua de baja altitud. La diferencia con otras bandas ayuda a identificar las cenizas volcánicas. Resolución espacial en el nadir: 2 km.", highlights: ["Humedad en niveles bajos", "Identificación de cenizas volcánicas", "Nubes bajas y niebla"] },
+                    { id: 16, name: "Canal 16: Detección de CO2 (13.28 µm)", description: "Mide la radiación del Dióxido de Carbono (CO₂) para clasificar la altura de las nubes y estimar los perfiles de temperatura del aire. Resolución espacial en el nadir: 2 km.", highlights: ["Altura del tope de las nubes", "Perfiles de temperatura atmosférica", "Estabilidad atmosférica"] }
+                ]
+            }
+        };
+
+        let currentBandData = [];
+        let currentLanguage = 'pt';
+        
+        const bandElements = [
+            {id: 1, lb: 8, wb: 1, lc: 7.5}, {id: 2, lb: 11, wb: 1, lc: 11.5},
+            {id: 3, lb: 14, wb: 1, lc: 15.5}, {id: 4, lb: 17, wb: 1, lc: 19.5},
+            {id: 5, lb: 20, wb: 1, lc: 23.5}, {id: 6, lb: 26, wb: 1, lc: 28.5},
+            {id: 7, lb: 38, wb: 3, lc: 38.5}, {id: 8, lb: 55, wb: 2, lc: 55.5},
+            {id: 9, lb: 59, wb: 3, lc: 60}, {id: 10, lb: 63, wb: 3, lc: 64},
+            {id: 11, lb: 70, wb: 3, lc: 71.5}, {id: 12, lb: 77, wb: 2, lc: 78.5},
+            {id: 13, lb: 81, wb: 3, lc: 82.5}, {id: 14, lb: 85, wb: 3, lc: 86.5},
+            {id: 15, lb: 89, wb: 3, lc: 90.5}, {id: 16, lb: 93, wb: 3, lc: 94.5}
+        ];
+        
+        const scaleTicks = [
+            { pos: 3, label: '0.38 µm', major: true }, { pos: 8, major: false },
+            { pos: 13, label: '1.0 µm', major: true }, { pos: 18, major: false },
+            { pos: 23, label: '2.0 µm', major: true }, { pos: 28, major: false },
+            { pos: 33, label: '3.0 µm', major: true }, { pos: 38, major: false },
+            { pos: 43, label: '4.0 µm', major: true }, { pos: 48, major: false },
+            { pos: 53, label: '5.0 µm', major: true }, { pos: 58, label: '6.0 µm', major: true },
+            { pos: 63, label: '7.0 µm', major: true }, { pos: 68, label: '8.0 µm', major: true },
+            { pos: 73, label: '9.0 µm', major: true }, { pos: 78, label: '10.0 µm', major: true },
+            { pos: 83, label: '11.0 µm', major: true }, { pos: 88, label: '12.0 µm', major: true },
+            { pos: 93, label: '13.0 µm', major: true },
+        ];
+
+        const container = document.getElementById('scale-and-bands-container');
+        const infoPlaceholder = document.getElementById('info-placeholder');
+        const infoContent = document.getElementById('info-content');
+        const infoTitle = document.getElementById('info-title');
+        const infoDescription = document.getElementById('info-description');
+        const infoHighlights = document.getElementById('info-highlights');
+
+        // Gerar elementos visuais da escala
+        bandElements.forEach(el => {
+            const box = document.createElement('div');
+            box.className = 'absolute bg-gray-600 rounded';
+            box.style.left = `${el.lb}%`;
+            box.style.width = `${el.wb}%`;
+            box.style.top = '25%';
+            box.style.height = '25%';
+            container.appendChild(box);
+        });
+        
+        const scaleLine = document.createElement('div');
+        scaleLine.className = 'absolute bg-gray-500 h-0.5 w-full';
+        scaleLine.style.top = '37.5%';
+        container.appendChild(scaleLine);
+
+        scaleTicks.forEach(tick => {
+            const tickEl = document.createElement('div');
+            tickEl.className = 'absolute bg-gray-500';
+            tickEl.style.left = `${tick.pos}%`;
+            if (tick.major) {
+                tickEl.style.top = '25%';
+                tickEl.style.height = '25%';
+                tickEl.style.width = '2px';
+            } else {
+                tickEl.style.top = '31.25%';
+                tickEl.style.height = '12.5%';
+                tickEl.style.width = '1px';
+            }
+            container.appendChild(tickEl);
+
+            if (tick.label) {
+                const labelEl = document.createElement('span');
+                labelEl.className = 'absolute text-gray-400 text-xs font-mono';
+                labelEl.style.left = `${tick.pos}%`;
+                labelEl.style.top = '55%';
+                labelEl.style.transform = 'translateX(-50%)';
+                labelEl.textContent = tick.label;
+                container.appendChild(labelEl);
+            }
+        });
+
+        bandElements.forEach(el => {
+            const circle = document.createElement('div');
+            circle.className = 'band-circle absolute bg-black text-white text-xs md:text-sm w-6 h-6 md:w-8 md:h-8 rounded-full flex items-center justify-center cursor-pointer font-bold z-10';
+            circle.style.left = `${el.lc}%`;
+            circle.style.transform = 'translateX(-50%)';
+            circle.style.bottom = '0';
+            circle.textContent = el.id;
+            circle.dataset.bandId = el.id;
+            container.appendChild(circle);
+        });
+
+        const displayBandInfo = (bandId) => {
+            const data = currentBandData.find(b => b.id === parseInt(bandId));
+            if (!data) return;
+
+            infoTitle.textContent = data.name;
+            infoDescription.textContent = data.description;
+            infoHighlights.innerHTML = data.highlights.map(item => `<li>${item}</li>`).join('');
+
+            infoPlaceholder.classList.add('hidden');
+            infoContent.classList.remove('hidden');
+        };
+
+        const updateLanguage = (lang) => {
+            currentLanguage = lang;
+            const content = translations[lang];
+
+            // Atualiza dados e textos da UI
+            currentBandData = content.bandData;
+            document.getElementById('main-title').textContent = content.mainTitle;
+            document.getElementById('main-subtitle').textContent = content.mainSubtitle;
+            document.getElementById('placeholder-text').textContent = content.placeholderText;
+            document.getElementById('highlights-title').textContent = content.highlightsTitle;
+
+            // Atualiza info da banda se uma estiver selecionada
+            const currentActive = container.querySelector('.band-circle.active');
+            if (currentActive) {
+                displayBandInfo(currentActive.dataset.bandId);
+            }
+
+            // Atualiza estilo dos botões de idioma
+            document.querySelectorAll('.lang-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.lang === lang);
+            });
+        };
+
+        // Event listener para os botões de idioma
+        document.getElementById('lang-switcher').addEventListener('click', (event) => {
+            const lang = event.target.dataset.lang;
+            if (lang) {
+                updateLanguage(lang);
+            }
+        });
+
+        container.addEventListener('click', (event) => {
+            const targetCircle = event.target;
+            if (targetCircle.classList.contains('band-circle')) {
+                const currentActive = container.querySelector('.band-circle.active');
+                if (currentActive) {
+                    currentActive.classList.remove('active');
+                }
+                targetCircle.classList.add('active');
+                displayBandInfo(targetCircle.dataset.bandId);
+            }
+        });
+
+        // Inicia a página com o idioma padrão
+        updateLanguage('pt');
+    });
+    </script>
+</body>
+</html>
